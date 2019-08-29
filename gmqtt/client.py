@@ -40,6 +40,15 @@ class Message:
             raise ValueError('Payload too large.')
 
 
+class Subscription:
+    def __init__(self, topic, qos=0, no_local=False, retain_as_published=False, retain_handling_options=0):
+        self.topic = topic
+        self.qos = qos
+        self.no_local = no_local
+        self.retain_as_published = retain_as_published
+        self.retain_handling_options = retain_handling_options
+
+
 class Client(MqttPackageHandler):
     def __init__(self, client_id, clean_session=True, optimistic_acknowledgement=True,
                  will_message=None, **kwargs):
@@ -70,14 +79,18 @@ class Client(MqttPackageHandler):
 
         self._topic_alias_maximum = kwargs.get('topic_alias_maximum', 0)
 
-        asyncio.ensure_future(self._resend_qos_messages())
+        self._resend_task = asyncio.ensure_future(self._resend_qos_messages())
 
     def _remove_message_from_query(self, mid):
-
         logger.debug('[REMOVE MESSAGE] %s', mid)
         asyncio.ensure_future(
             self._persistent_storage.remove_message_by_mid(mid)
         )
+
+    @property
+    def is_connected(self):
+        # tells if connection is alive and CONNACK was received
+        return self._connected.is_set() and not self._connection.is_closing()
 
     async def _resend_qos_messages(self):
         await self._connected.wait()
@@ -85,7 +98,7 @@ class Client(MqttPackageHandler):
         if await self._persistent_storage.is_empty:
             logger.debug('[QoS query IS EMPTY]')
             await asyncio.sleep(self._retry_deliver_timeout)
-        elif self._connection.is_closing:
+        elif self._connection.is_closing():
             logger.debug('[Some msg need to resend] Transport is closing, sleeping')
             await asyncio.sleep(self._retry_deliver_timeout)
         else:
@@ -105,7 +118,7 @@ class Client(MqttPackageHandler):
             else:
                 await asyncio.sleep(self._retry_deliver_timeout)
 
-        asyncio.ensure_future(self._resend_qos_messages())
+        self._resend_task = asyncio.ensure_future(self._resend_qos_messages())
 
     @property
     def properties(self):
@@ -177,16 +190,28 @@ class Client(MqttPackageHandler):
 
     async def disconnect(self, reason_code=0, **properties):
         self.stop_reconnect()
+        self._resend_task.cancel()
         await self._disconnect(reason_code=reason_code, **properties)
 
     async def _disconnect(self, reason_code=0, **properties):
+        self._connected.clear()
         if self._connection:
             self._connection.send_disconnect(reason_code=reason_code, **properties)
             await self._connection.close()
 
-    def subscribe(self, topic, qos=0, no_local=False, retain_as_published=False, retain_handling_options=0, **kwargs):
-        return self._connection.subscribe(topic, qos, no_local=no_local, retain_as_published=retain_as_published,
-                                          retain_handling_options=retain_handling_options, **kwargs)
+    def subscribe(self, subscription_or_topic, qos=0, no_local=False, retain_as_published=False,
+                  retain_handling_options=0, **kwargs):
+        if isinstance(subscription_or_topic, Subscription):
+            subscription = subscription_or_topic
+        elif isinstance(subscription_or_topic, (tuple, list)):
+            subscription = subscription_or_topic
+        elif isinstance(subscription_or_topic, str):
+            subscription = Subscription(subscription_or_topic, qos=qos, no_local=no_local,
+                                        retain_as_published=retain_as_published,
+                                        retain_handling_options=retain_handling_options)
+        else:
+            raise ValueError('Bad subscription: must be string or Subscription or list of Subscriptions')
+        return self._connection.subscribe(subscription, **kwargs)
 
     def unsubscribe(self, topic, **kwargs):
         return self._connection.unsubscribe(topic, **kwargs)
