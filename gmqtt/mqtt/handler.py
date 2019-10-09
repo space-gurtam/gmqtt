@@ -7,7 +7,7 @@ from collections import defaultdict
 from copy import deepcopy
 from functools import partial
 
-from .utils import unpack_variable_byte_integer, IdGenerator
+from .utils import unpack_variable_byte_integer, IdGenerator, run_coroutine_or_function
 from .property import Property
 from .protocol import MQTTProtocol
 from .constants import MQTTCommands, PubAckReasonCode, PubRecReasonCode, DEFAULT_CONFIG
@@ -31,7 +31,28 @@ class MQTTConnectError(MQTTError):
         3: "Connection Refused: broker unavailable",
         4: "Connection Refused: bad user name or password",
         5: "Connection Refused: not authorised",
-        10: 'Cannot handle CONNACK package'
+        10: 'Cannot handle CONNACK package',
+        128: "Connection Refused: Unspecified error",
+        129: "Connection Refused: Malformed Packet",
+        130: "Connection Refused: Protocol Error",
+        131: "Connection Refused: Implementation specific error",
+        132: "Connection Refused: Unsupported Protocol Version",
+        133: "Connection Refused: Client Identifier not valid",
+        134: "Connection Refused: Bad User Name or Password",
+        135: "Connection Refused: Not authorized",
+        136: "Connection Refused: Server unavailable",
+        137: "Connection Refused: Server busy",
+        138: "Connection Refused: Banned",
+        140: "Connection Refused: Bad authentication method",
+        144: "Connection Refused: Topic Name invalid",
+        149: "Connection Refused: Packet too large",
+        151: "Connection Refused: Quota exceeded",
+        153: "Connection Refused: Payload format invalid",
+        154: "Connection Refused: Retain not supported",
+        155: "Connection Refused: QoS not supported",
+        156: "Connection Refused: Use another server",
+        157: "Connection Refused: Server moved",
+        159: "Connection Refused: Connection rate exceeded",
     }
 
     def __init__(self, code):
@@ -222,7 +243,7 @@ class MqttPackageHandler(EventCallback):
         (flags, result) = struct.unpack("!BB", packet[:2])
 
         if result != 0:
-            logger.error('[CONNACK] %s', hex(result))
+            logger.warning('[CONNACK] %s', hex(result))
             self.failed_connections += 1
             if result == 1 and self.protocol_version == MQTTv50:
                 logger.info('[CONNACK] Downgrading to MQTT 3.1 protocol version')
@@ -293,28 +314,20 @@ class MqttPackageHandler(EventCallback):
             return
 
         if qos == 0:
-            if iscoroutinefunction(self.on_message):
-                asyncio.ensure_future(self.on_message(self, print_topic, packet, qos, properties))
-            else:
-                self.on_message(self, print_topic, packet, qos, properties)
-            self._id_generator.free_id(mid)
+            run_coroutine_or_function(self.on_message, self, print_topic, packet, qos, properties)
         elif qos == 1:
             self._handle_qos_1_publish_packet(mid, packet, print_topic, properties)
         elif qos == 2:
             self._handle_qos_2_publish_packet(mid, packet, print_topic, properties)
+        self._id_generator.free_id(mid)
 
     def _handle_qos_2_publish_packet(self, mid, packet, print_topic, properties):
         if self._optimistic_acknowledgement:
             self._send_pubrec(mid)
-            self.on_message(self, print_topic, packet, 2, properties)
+            run_coroutine_or_function(self.on_message, self, print_topic, packet, 2, properties)
         else:
-            if iscoroutinefunction(self.on_message):
-                f = asyncio.ensure_future(self.on_message(self, print_topic, packet, 2, properties))
-                f.add_done_callback(partial(self.__handle_publish_callback, qos=2, mid=mid))
-            else:
-                reason_code = self.on_message(self, print_topic, packet, 2, properties)
-                if reason_code not in (c.value for c in PubRecReasonCode):
-                    raise ValueError('Invalid PUBREC reason code {}'.format(reason_code))
+            run_coroutine_or_function(self.on_message, self, print_topic, packet, 2, properties,
+                                      callback=partial(self.__handle_publish_callback, qos=2, mid=mid))
 
     def __handle_publish_callback(self, f, qos=None, mid=None):
         reason_code = f.result()
@@ -329,18 +342,10 @@ class MqttPackageHandler(EventCallback):
     def _handle_qos_1_publish_packet(self, mid, packet, print_topic, properties):
         if self._optimistic_acknowledgement:
             self._send_puback(mid)
-            self.on_message(self, print_topic, packet, 1, properties)
+            run_coroutine_or_function(self.on_message, self, print_topic, packet, 1, properties)
         else:
-            if iscoroutinefunction(self.on_message):
-                f = asyncio.ensure_future(self.on_message(self, print_topic, packet, 2, properties))
-                f.add_done_callback(partial(self.__handle_publish_callback, qos=1, mid=mid))
-            else:
-                reason_code = self.on_message(self, print_topic, packet, 1, properties)
-                if reason_code not in (c.value for c in PubAckReasonCode):
-                    raise ValueError('Invalid PUBACK reason code {}'.format(reason_code))
-                self._send_puback(mid, reason_code=reason_code)
-
-        self._id_generator.free_id(mid)
+            run_coroutine_or_function(self.on_message, self, print_topic, packet, 1, properties,
+                                      callback=partial(self.__handle_publish_callback, qos=1, mid=mid))
 
     def __call__(self, cmd, packet):
         try:
