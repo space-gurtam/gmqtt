@@ -1,29 +1,40 @@
 import asyncio
 import os
+import time
+
 import pytest
 
 import gmqtt
 from tests.utils import Callbacks, cleanup, clean_retained
 
-host = 'mqtt.flespi.io'
-port = 1883
-username = os.getenv('USERNAME', 'fake_token')
+if os.getenv('TOKEN'):
+    host = 'mqtt.flespi.io'
+    username = os.getenv("TOKEN")
+    password = None
+    port = 1883
+else:
+    host = os.getenv("HOST", "127.0.0.1")
+    username = os.getenv("USERNAME", "")
+    password = os.getenv("PASSWORD", None)
+    port = os.getenv("PORT", 1883)
 
-TOPICS = ("TopicA", "TopicA/B", "TopicA/C", "TopicA/D", "/TopicA")
-WILDTOPICS = ("TopicA/+", "+/C", "#", "/#", "/+", "+/+", "TopicA/#")
-NOSUBSCRIBE_TOPICS = ("test/nosubscribe",)
+PREFIX = 'GMQTT/' + str(time.time()) + '/'
+
+TOPICS = (PREFIX + "TopicA", PREFIX + "TopicA/B", PREFIX + "TopicA/C", PREFIX + "TopicA/D", PREFIX + "/TopicA")
+WILDTOPICS = (PREFIX + "TopicA/+", PREFIX + "+/C", PREFIX + "#", PREFIX + "/#", PREFIX + "/+", PREFIX + "+/+", PREFIX + "TopicA/#")
+NOSUBSCRIBE_TOPICS = (PREFIX + "test/nosubscribe",)
 
 
 @pytest.fixture()
 async def init_clients():
-    await cleanup(host, port, username)
+    await cleanup(host, port, username, prefix=PREFIX)
 
-    aclient = gmqtt.Client("myclientid", clean_session=True)
+    aclient = gmqtt.Client(PREFIX + "myclientid", clean_session=True)
     aclient.set_auth_credentials(username)
     callback = Callbacks()
     callback.register_for_client(aclient)
 
-    bclient = gmqtt.Client("myclientid2", clean_session=True)
+    bclient = gmqtt.Client(PREFIX + "myclientid2", clean_session=True)
     bclient.set_auth_credentials(username)
     callback2 = Callbacks()
     callback2.register_for_client(bclient)
@@ -98,7 +109,7 @@ async def test_retained_message(init_clients):
     assert len(callback2.messages) == 4
     assert callback2.messages[3][3]['retain'] == 0
 
-    await clean_retained(host, port, username)
+    await clean_retained(host, port, username, prefix=PREFIX)
 
 
 @pytest.mark.asyncio
@@ -107,7 +118,7 @@ async def test_will_message(init_clients):
 
     # re-initialize aclient with will message
     will_message = gmqtt.Message(TOPICS[2], "I'm dead finally")
-    aclient = gmqtt.Client("myclientid3", clean_session=True, will_message=will_message)
+    aclient = gmqtt.Client(PREFIX + "myclientid3", clean_session=True, will_message=will_message)
     aclient.set_auth_credentials(username)
 
     await aclient.connect(host, port=port)
@@ -127,7 +138,7 @@ async def test_no_will_message_on_gentle_disconnect(init_clients):
 
     # re-initialize aclient with will message
     will_message = gmqtt.Message(TOPICS[2], "I'm dead finally")
-    aclient = gmqtt.Client("myclientid3", clean_session=True, will_message=will_message)
+    aclient = gmqtt.Client(PREFIX + "myclientid3", clean_session=True, will_message=will_message)
     aclient.set_auth_credentials(username)
 
     await aclient.connect(host, port=port)
@@ -145,8 +156,8 @@ async def test_no_will_message_on_gentle_disconnect(init_clients):
 async def test_shared_subscriptions(init_clients):
     aclient, callback, bclient, callback2 = init_clients
 
-    shared_sub_topic = '$share/sharename/x'
-    shared_pub_topic = 'x'
+    shared_sub_topic = '$share/sharename/{}x'.format(PREFIX)
+    shared_pub_topic = PREFIX + 'x'
 
     await aclient.connect(host=host, port=port)
     aclient.subscribe(shared_sub_topic)
@@ -156,7 +167,7 @@ async def test_shared_subscriptions(init_clients):
     bclient.subscribe(shared_sub_topic)
     bclient.subscribe(TOPICS[0])
 
-    pubclient = gmqtt.Client("myclient3", clean_session=True)
+    pubclient = gmqtt.Client(PREFIX + "myclient3", clean_session=True)
     pubclient.set_auth_credentials(username)
     await pubclient.connect(host, port)
 
@@ -261,7 +272,7 @@ async def test_redelivery_on_reconnect(init_clients):
 
     aclient, callback, bclient, callback2 = init_clients
 
-    disconnect_client = gmqtt.Client('myclientid3', optimistic_acknowledgement=False,
+    disconnect_client = gmqtt.Client(PREFIX + 'myclientid3', optimistic_acknowledgement=False,
                                      clean_session=False, session_expiry_interval=99999)
     disconnect_client.set_config({'reconnect_retries': 0})
     disconnect_client.on_message = on_message
@@ -299,7 +310,7 @@ async def test_async_on_message(init_clients):
 
     aclient, callback, bclient, callback2 = init_clients
 
-    disconnect_client = gmqtt.Client('myclientid3', optimistic_acknowledgement=False,
+    disconnect_client = gmqtt.Client(PREFIX + 'myclientid3', optimistic_acknowledgement=False,
                                      clean_session=False, session_expiry_interval=99999)
     disconnect_client.set_config({'reconnect_retries': 0})
     disconnect_client.on_message = on_message

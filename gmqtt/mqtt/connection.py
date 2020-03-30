@@ -1,9 +1,10 @@
 import asyncio
-
+import logging
 import time
 
 from .protocol import MQTTProtocol
 
+logger = logging.getLogger(__name__)
 
 class MQTTConnection(object):
     def __init__(self, transport: asyncio.Transport, protocol: MQTTProtocol, clean_session: bool, keepalive: int):
@@ -18,7 +19,7 @@ class MQTTConnection(object):
         self._last_data_in = time.monotonic()
         self._last_data_out = time.monotonic()
 
-        self._keep_connection_callback = asyncio.get_event_loop().call_later(self._keepalive, self._keep_connection)
+        self._keep_connection_callback = asyncio.get_event_loop().call_later(self._keepalive / 2, self._keep_connection)
 
     @classmethod
     async def create_connection(cls, host, port, ssl, clean_session, keepalive, loop=None):
@@ -29,11 +30,18 @@ class MQTTConnection(object):
     def _keep_connection(self):
         if self.is_closing():
             return
-        if time.monotonic() - self._last_data_in >= self._keepalive:
+
+        if time.monotonic() - self._last_data_in >= 2 * self._keepalive:
+            logger.warning("[LOST HEARTBEAT FOR %s SECONDS, GOING TO CLOSE CONNECTION]", 2 * self._keepalive)
+            asyncio.ensure_future(self.close())
+            return
+
+        if time.monotonic() - self._last_data_in >= 0.8 * self._keepalive:
             self._send_ping_request()
-        self._keep_connection_callback = asyncio.get_event_loop().call_later(self._keepalive, self._keep_connection)
+        self._keep_connection_callback = asyncio.get_event_loop().call_later(self._keepalive / 2, self._keep_connection)
 
     def put_package(self, pkg):
+        self._last_data_in = time.monotonic()
         self._handler(*pkg)
 
     def send_package(self, package):

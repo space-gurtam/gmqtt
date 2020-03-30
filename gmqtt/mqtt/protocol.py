@@ -19,6 +19,9 @@ class BaseMQTTProtocol(asyncio.StreamReaderProtocol):
         self._connected = asyncio.Event(loop=loop)
 
         reader = asyncio.StreamReader(limit=buffer_size, loop=loop)
+        # this is bad hack for python 3.8
+        # TODO: get rid of StreamReader dependency (deprecated)
+        self._hard_reader = reader
         super(BaseMQTTProtocol, self).__init__(reader, loop=loop)
 
     def set_connection(self, conn):
@@ -39,7 +42,7 @@ class BaseMQTTProtocol(asyncio.StreamReaderProtocol):
         super(BaseMQTTProtocol, self).data_received(data)
 
     def write_data(self, data: bytes):
-        if not self._transport.is_closing():
+        if self._transport and not self._transport.is_closing():
             self._transport.write(data)
         else:
             logger.warning('[TRYING WRITE TO CLOSED SOCKET]')
@@ -86,8 +89,10 @@ class MQTTProtocol(BaseMQTTProtocol):
                                                        keepalive, self, will_message=will_message, **kwargs)
         self.write_data(pkg)
 
-    def send_subscribe_packet(self, subscription, **kwargs):
-        mid, pkg = package.SubscribePacket.build_package(subscription, self, **kwargs)
+    def send_subscribe_packet(self, subscriptions, **kwargs):
+        mid, pkg = package.SubscribePacket.build_package(subscriptions, self, **kwargs)
+        for sub in subscriptions:
+            sub.mid = mid
         self.write_data(pkg)
         return mid
 

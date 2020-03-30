@@ -77,17 +77,18 @@ class EventCallback(object):
         self._on_unsubscribe_callback = _empty_callback
 
         self._config = deepcopy(DEFAULT_CONFIG)
-        self._reconnects_config_cache = None
+        self._reconnecting_now = False
+
+        # this flag should be True after connect and False when disconnect was called
+        self._is_active = False
 
         self.failed_connections = 0
 
     def _temporatily_stop_reconnect(self):
-        self._reconnects_config_cache = self._config['reconnect_retries']
-        self.stop_reconnect()
+        self._reconnecting_now = True
 
-    def _restore_config(self):
-        if self._reconnects_config_cache is not None:
-            self._config['reconnect_retries'] = self._reconnects_config_cache
+    def _exit_reconnecting_state(self):
+        self._reconnecting_now = False
 
     def stop_reconnect(self):
         self._config['reconnect_retries'] = 0
@@ -96,18 +97,21 @@ class EventCallback(object):
         self._config.update(config)
 
     @property
-    def _reconnect(self):
-        if self.reconnect_retries == -1:
-            return True
-        return bool(self.reconnect_retries)
-
-    @property
     def reconnect_delay(self):
         return self._config['reconnect_delay']
+
+    @reconnect_delay.setter
+    def reconnect_delay(self, value):
+        self._config['reconnect_delay'] = value
 
     @property
     def reconnect_retries(self):
         return self._config['reconnect_retries']
+
+    @reconnect_retries.setter
+    def reconnect_retries(self, value):
+        self._config['reconnect_retries'] = value
+
 
     @property
     def on_subscribe(self):
@@ -190,6 +194,9 @@ class MqttPackageHandler(EventCallback):
     def _send_pubrel(self, mid, dup, reason_code=0):
         self._send_command_with_mid(MQTTCommands.PUBREL | 2, mid, dup, reason_code=reason_code)
 
+    def _send_pubcomp(self, mid, dup, reason_code=0):
+        self._send_command_with_mid(MQTTCommands.PUBCOMP, mid, dup, reason_code=reason_code)
+
     def __get_handler__(self, cmd):
         cmd_type = cmd & 0xF0
         if cmd_type not in self._handler_cache:
@@ -204,17 +211,16 @@ class MqttPackageHandler(EventCallback):
         self._last_msg_in = time.monotonic()
 
     def _handle_exception_in_future(self, future):
-        if not future.exception():
+        if future.exception():
+            logger.warning('[EXC OCCURED] in reconnect future %s', future.exception())
             return
-        self.on_disconnect(self, packet=None, exc=future.exception())
 
     def _default_handler(self, cmd, packet):
         logger.warning('[UNKNOWN CMD] %s %s', hex(cmd), packet)
 
     def _handle_disconnect_packet(self, cmd, packet):
-        if self._reconnect:
-            future = asyncio.ensure_future(self.reconnect(delay=True))
-            future.add_done_callback(self._handle_exception_in_future)
+        future = asyncio.ensure_future(self.reconnect(delay=True))
+        future.add_done_callback(self._handle_exception_in_future)
         self.on_disconnect(self, packet)
 
     def _parse_properties(self, packet):
@@ -253,8 +259,7 @@ class MqttPackageHandler(EventCallback):
                 return
             else:
                 self._error = MQTTConnectError(result)
-                if self._reconnect:
-                    asyncio.ensure_future(self.reconnect(delay=True))
+                asyncio.ensure_future(self.reconnect(delay=True))
                 return
         else:
             self.failed_connections = 0
@@ -358,12 +363,26 @@ class MqttPackageHandler(EventCallback):
     def _handle_suback_packet(self, cmd, raw_packet):
         pack_format = "!H" + str(len(raw_packet) - 2) + 's'
         (mid, packet) = struct.unpack(pack_format, raw_packet)
+        properties, packet = self._parse_properties(packet)
+
         pack_format = "!" + "B" * len(packet)
-        granted_qos = struct.unpack(pack_format, packet)
+        granted_qoses = struct.unpack(pack_format, packet)
 
-        logger.info('[SUBACK] %s %s', mid, granted_qos)
-        self.on_subscribe(self, mid, granted_qos)
+        subs = self.get_subscriptions_by_mid(mid)
+        for granted_qos, sub in zip(granted_qoses, subs):
+            if granted_qos >= 128:
+                # subscription was not acknowledged
+                sub.acknowledged = False
+            else:
+                sub.acknowledged = True
+                sub.qos = granted_qos
 
+        logger.info('[SUBACK] %s %s', mid, granted_qoses)
+        self.on_subscribe(self, mid, granted_qoses, properties)
+
+        for sub in self.subscriptions:
+            if sub.mid == mid:
+                sub.mid = None
         self._id_generator.free_id(mid)
 
     def _handle_unsuback_packet(self, cmd, raw_packet):
@@ -398,13 +417,15 @@ class MqttPackageHandler(EventCallback):
         pass
 
     def _handle_pubrec_packet(self, cmd, packet):
-        pass
+        (mid,) = struct.unpack("!H", packet[:2])
+        logger.info('[RECEIVED PUBREC FOR] %s', mid)
+        self._id_generator.free_id(mid)
+        self._remove_message_from_query(mid)
+        self._send_pubrel(mid, 0)
 
     def _handle_pubrel_packet(self, cmd, packet):
-        mid, = struct.unpack("!H", packet)
+        (mid, ) = struct.unpack("!H", packet[:2])
+        logger.info('[RECEIVED PUBREL FOR] %s', mid)
+        self._send_pubcomp(mid, 0)
+
         self._id_generator.free_id(mid)
-
-        if mid not in self._messages_in:
-            return
-
-        topic, payload, qos = self._messages_in[mid]
