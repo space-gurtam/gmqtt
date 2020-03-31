@@ -2,7 +2,7 @@
 import sys
 from os import path
 
-from setuptools import find_packages, setup
+from setuptools import find_packages, setup, Extension
 
 import gmqtt
 
@@ -49,6 +49,7 @@ setup(
     name="gmqtt",
     version=gmqtt.__version__,
     description="Client for MQTT protocol",
+    ext_modules=[Extension('gmqttlib', ['lib/gmqttlib.c'])],
     long_description=long_description,
     long_description_content_type="text/markdown",
     author=gmqtt.__author__,

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import struct
 import time
+import gmqttlib
 from asyncio import iscoroutinefunction
 from collections import defaultdict
 from copy import deepcopy
@@ -171,6 +172,7 @@ class MqttPackageHandler(EventCallback):
         self._handler_cache = {}
         self._error = None
         self._connection = None
+        self._extract_c_properties = False
 
         self._id_generator = IdGenerator(max=kwargs.get('receive_maximum', 65535))
 
@@ -228,20 +230,25 @@ class MqttPackageHandler(EventCallback):
             # If protocol is version is less than 5.0, there is no properties in packet
             return {}, packet
         properties_len, left_packet = unpack_variable_byte_integer(packet)
-        packet = left_packet[:properties_len]
-        left_packet = left_packet[properties_len:]
-        properties_dict = defaultdict(list)
-        while packet:
-            property_identifier, = struct.unpack("!B", packet[:1])
-            property_obj = Property.factory(id_=property_identifier)
-            if property_obj is None:
-                logger.critical('[PROPERTIES] received invalid property id {}, disconnecting'.format(property_identifier))
-                return None, None
-            result, packet = property_obj.loads(packet[1:])
-            for k, v in result.items():
-                properties_dict[k].append(v)
-        properties_dict = dict(properties_dict)
-        return properties_dict, left_packet
+        if self._extract_c_properties:
+            properties_dict = gmqttlib.prop_loads(packet)
+            left_packet = left_packet[properties_len:]
+            return properties_dict, left_packet
+        else:
+            packet = left_packet[:properties_len]
+            left_packet = left_packet[properties_len:]
+            properties_dict = defaultdict(list)
+            while packet:
+                property_identifier, = struct.unpack("!B", packet[:1])
+                property_obj = Property.factory(id_=property_identifier)
+                if property_obj is None:
+                    logger.critical('[PROPERTIES] received invalid property id {}, disconnecting'.format(property_identifier))
+                    return None, None
+                result, packet = property_obj.loads(packet[1:])
+                for k, v in result.items():
+                    properties_dict[k].append(v)
+            properties_dict = dict(properties_dict)
+            return properties_dict, left_packet
 
     def _handle_connack_packet(self, cmd, packet):
         self._connected.set()

@@ -84,6 +84,7 @@ class Client(MqttPackageHandler):
         # TODO: this constant may be moved to config
         self._retry_deliver_timeout = kwargs.pop('retry_deliver_timeout', 5)
         self._persistent_storage = kwargs.pop('persistent_storage', HeapPersistentStorage(self._retry_deliver_timeout))
+        self._extract_c_properties = kwargs.pop('extract_c_properties', False)
 
         self._topic_alias_maximum = kwargs.get('topic_alias_maximum', 0)
 
