@@ -3,7 +3,6 @@ import logging
 import struct
 import time
 
-from gmqtt import gmqttlib
 from asyncio import iscoroutinefunction
 from collections import defaultdict
 from copy import deepcopy
@@ -14,6 +13,13 @@ from .property import Property
 from .protocol import MQTTProtocol
 from .constants import MQTTCommands, PubAckReasonCode, PubRecReasonCode, DEFAULT_CONFIG
 from .constants import MQTTv311, MQTTv50
+
+try:
+    import gmqttlib
+except:
+    _has_gmqttlib = False
+else:
+    _has_gmqttlib = True
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +237,7 @@ class MqttPackageHandler(EventCallback):
             # If protocol is version is less than 5.0, there is no properties in packet
             return {}, packet
         properties_len, left_packet = unpack_variable_byte_integer(packet)
-        if self._extract_c_properties:
+        if _has_gmqttlib and self._extract_c_properties:
             properties_dict = gmqttlib.prop_loads(packet)
             left_packet = left_packet[properties_len:]
             return properties_dict, left_packet
