@@ -2,7 +2,8 @@ import asyncio
 import logging
 import struct
 import time
-import gmqttlib
+
+from gmqtt import gmqttlib
 from asyncio import iscoroutinefunction
 from collections import defaultdict
 from copy import deepcopy
