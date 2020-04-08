@@ -64,5 +64,5 @@ setup(
     install_requires=[],
     tests_require=TESTS_REQUIRE,
     extras_require=EXTRAS_REQUIRE,
-    ext_modules=[Extension('gmqttlib', ['lib/gmqttlib.c'])],
+    ext_modules=[Extension('gmqtt.gmqttlib', ['lib/gmqttlib.c'])],
 )
