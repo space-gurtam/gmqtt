@@ -279,13 +279,7 @@ class MqttPackageHandler(EventCallback):
             self.failed_connections = 0
 
         if len(packet) > 2:
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                try:
-                    future_properties = pool.submit(self._parse_properties, packet[2:])
-                    properties, _ = future_properties.result()
-                except Exception as e:
-                    logger.error(f'{self.__class__.__name__}::_handle_connack_packet: Exception '
-                                 f'parse properties with errors {repr(e)}')
+            properties, _ = self._parse_properties(packet[2:])
             if properties is None:
                 self._error = MQTTConnectError(10)
                 asyncio.ensure_future(self.disconnect())
@@ -330,14 +324,7 @@ class MqttPackageHandler(EventCallback):
         else:
             mid = None
 
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            try:
-                future_properties = pool.submit(self._parse_properties, packet)
-                properties, packet = future_properties.result()
-            except Exception as e:
-                logger.error(f'{self.__class__.__name__}::_handle_publish_packet: Exception '
-                             f'parse properties with errors {repr(e)}')
-
+        properties, packet = self._parse_properties(packet)
         properties['dup'] = dup
         properties['retain'] = retain
 
