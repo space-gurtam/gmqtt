@@ -2,7 +2,6 @@ import asyncio
 import logging
 import struct
 import time
-import concurrent
 
 from asyncio import iscoroutinefunction
 from collections import defaultdict
