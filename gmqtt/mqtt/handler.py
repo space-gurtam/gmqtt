@@ -180,6 +180,7 @@ class MqttPackageHandler(EventCallback):
         self._error = None
         self._connection = None
         self._extract_c_properties = False
+        self._loop = asyncio.new_event_loop()
 
         self._id_generator = IdGenerator(max=kwargs.get('receive_maximum', 65535))
 
@@ -228,7 +229,7 @@ class MqttPackageHandler(EventCallback):
         logger.warning('[UNKNOWN CMD] %s %s', hex(cmd), packet)
 
     def _handle_disconnect_packet(self, cmd, packet):
-        future = asyncio.ensure_future(self.reconnect(delay=True))
+        future = self._loop.create_task(self.reconnect(delay=True))
         future.add_done_callback(self._handle_exception_in_future)
         self.on_disconnect(self, packet)
 
@@ -268,12 +269,12 @@ class MqttPackageHandler(EventCallback):
             if result == 1 and self.protocol_version == MQTTv50:
                 logger.info('[CONNACK] Downgrading to MQTT 3.1 protocol version')
                 MQTTProtocol.proto_ver = MQTTv311
-                future = asyncio.ensure_future(self.reconnect(delay=True))
+                future = self._loop.create_task(self.reconnect(delay=True))
                 future.add_done_callback(self._handle_exception_in_future)
                 return
             else:
                 self._error = MQTTConnectError(result)
-                asyncio.ensure_future(self.reconnect(delay=True))
+                self._loop.create_task(self.reconnect(delay=True))
                 return
         else:
             self.failed_connections = 0
@@ -282,7 +283,7 @@ class MqttPackageHandler(EventCallback):
             properties, _ = self._parse_properties(packet[2:])
             if properties is None:
                 self._error = MQTTConnectError(10)
-                asyncio.ensure_future(self.disconnect())
+                self._loop.create_task(self.disconnect())
             self._connack_properties = properties
 
         # TODO: Implement checking for the flags and results

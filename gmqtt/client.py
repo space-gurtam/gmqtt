@@ -88,7 +88,7 @@ class Client(MqttPackageHandler):
 
         self._topic_alias_maximum = kwargs.get('topic_alias_maximum', 0)
 
-        self._resend_task = asyncio.ensure_future(self._resend_qos_messages())
+        self._resend_task = self._loop.create_task(self._resend_qos_messages())
 
         self.subscriptions = []
 
@@ -100,7 +100,7 @@ class Client(MqttPackageHandler):
 
     def _remove_message_from_query(self, mid):
         logger.debug('[REMOVE MESSAGE] %s', mid)
-        asyncio.ensure_future(
+        self._loop.create_task(
             self._persistent_storage.remove_message_by_mid(mid)
         )
 
@@ -135,7 +135,7 @@ class Client(MqttPackageHandler):
             else:
                 await asyncio.sleep(self._retry_deliver_timeout)
 
-        self._resend_task = asyncio.ensure_future(self._resend_qos_messages())
+        self._resend_task = self._loop.create_task(self._resend_qos_messages())
 
     @property
     def properties(self):
@@ -165,9 +165,8 @@ class Client(MqttPackageHandler):
                                     **self._connect_properties)
         await self._connected.wait()
 
-        loop = asyncio.get_event_loop()
         while not await self._persistent_storage.is_empty:
-            await loop.create_future()
+            await self._loop.create_future()
 
         if raise_exc and self._error:
             raise self._error
@@ -203,7 +202,7 @@ class Client(MqttPackageHandler):
         except OSError as exc:
             self.failed_connections += 1
             logger.warning("[CAN'T RECONNECT] %s", self.failed_connections)
-            asyncio.ensure_future(self.reconnect(delay=True))
+            self._loop.create_task(self.reconnect(delay=True))
             return
         await self._connection.auth(self._client_id, self._username, self._password,
                                     will_message=self._will_message, **self._connect_properties)
