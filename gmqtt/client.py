@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class Message:
     def __init__(self, topic, payload, qos=0, retain=False, **kwargs):
-        self.topic = topic
+        self.topic = topic.encode('utf-8', errors='replace') if isinstance(topic, str) else str
         self.qos = qos
         self.retain = retain
         self.dup = False
@@ -175,6 +175,7 @@ class Client(MqttPackageHandler):
     async def _create_connection(self, host, port, ssl, clean_session, keepalive):
         # important for reconnects, make sure u know what u are doing if wanna change :(
         self._exit_reconnecting_state()
+        self._clear_topics_aliases()
         connection = await MQTTConnection.create_connection(host, port, ssl, clean_session, keepalive)
         connection.set_handler(self)
         return connection
@@ -194,7 +195,10 @@ class Client(MqttPackageHandler):
             return
         # stopping auto-reconnects during reconnect procedure is important, better do not touch :(
         self._temporatily_stop_reconnect()
-        await self._disconnect()
+        try:
+            await self._disconnect()
+        except:
+            logger.info('[RECONNECT] ignored error while disconnecting, trying to reconnect anyway')
         if delay:
             await asyncio.sleep(self._config['reconnect_delay'])
         try:
@@ -214,6 +218,8 @@ class Client(MqttPackageHandler):
         await self._disconnect(reason_code=reason_code, **properties)
 
     async def _disconnect(self, reason_code=0, **properties):
+        self._clear_topics_aliases()
+
         self._connected.clear()
         if self._connection:
             self._connection.send_disconnect(reason_code=reason_code, **properties)
@@ -221,21 +227,39 @@ class Client(MqttPackageHandler):
 
     def subscribe(self, subscription_or_topic: Union[str, Subscription, Sequence[Subscription]],
                   qos=0, no_local=False, retain_as_published=False, retain_handling_options=0, **kwargs):
+
+        # Warn: if you will pass a few subscriptions objects, and each will be have different
+        # subscription identifier - the only first will be used as identifier
+        # if only you will not pass the identifier in kwargs
+
         subscriptions = self.update_subscriptions_with_subscription_or_topic(
             subscription_or_topic, qos, no_local, retain_as_published, retain_handling_options, kwargs)
         return self._connection.subscribe(subscriptions, **kwargs)
 
     def update_subscriptions_with_subscription_or_topic(
             self, subscription_or_topic, qos, no_local, retain_as_published, retain_handling_options, kwargs):
-        subscription_identifier = kwargs.get('subscription_identifier')
+
+        sentinel = object()
+        subscription_identifier = kwargs.get('subscription_identifier', sentinel)
+
         if isinstance(subscription_or_topic, Subscription):
-            subscription_or_topic.subscription_identifier = subscription_identifier
+
+            if subscription_identifier is not sentinel:
+                subscription_or_topic.subscription_identifier = subscription_identifier
+
             subscriptions = [subscription_or_topic]
         elif isinstance(subscription_or_topic, (tuple, list)):
-            for sub in subscription_or_topic:
-                sub.subscription_identifier = subscription_identifier
+
+            if subscription_identifier is not sentinel:
+                for sub in subscription_or_topic:
+                    sub.subscription_identifier = subscription_identifier
+
             subscriptions = subscription_or_topic
         elif isinstance(subscription_or_topic, str):
+
+            if subscription_identifier is sentinel:
+                subscription_identifier = None
+
             subscriptions = [Subscription(subscription_or_topic, qos=qos, no_local=no_local,
                                           retain_as_published=retain_as_published,
                                           retain_handling_options=retain_handling_options,

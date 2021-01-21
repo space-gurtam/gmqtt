@@ -1,6 +1,7 @@
 import asyncio
 import os
 import time
+from unittest import mock
 
 import pytest
 
@@ -20,8 +21,18 @@ else:
 
 PREFIX = 'GMQTT/' + str(time.time()) + '/'
 
-TOPICS = (PREFIX + "TopicA", PREFIX + "TopicA/B", PREFIX + "TopicA/C", PREFIX + "TopicA/D", PREFIX + "/TopicA")
-WILDTOPICS = (PREFIX + "TopicA/+", PREFIX + "+/C", PREFIX + "#", PREFIX + "/#", PREFIX + "/+", PREFIX + "+/+", PREFIX + "TopicA/#")
+TOPICS = (PREFIX + "TopicA",
+          PREFIX + "TopicA/B",
+          PREFIX + "TopicA/C",
+          PREFIX + "TopicA/D",
+          PREFIX + "/TopicA")
+WILDTOPICS = (PREFIX + "TopicA/+",
+              PREFIX + "+/C",
+              PREFIX + "#",
+              PREFIX + "/#",
+              PREFIX + "/+",
+              PREFIX + "+/+",
+              PREFIX + "TopicA/#")
 NOSUBSCRIBE_TOPICS = (PREFIX + "test/nosubscribe",)
 
 
@@ -163,7 +174,7 @@ async def test_shared_subscriptions(init_clients):
     aclient.subscribe(shared_sub_topic)
     aclient.subscribe(TOPICS[0])
 
-    await   bclient.connect(host=host, port=port)
+    await bclient.connect(host=host, port=port)
     bclient.subscribe(shared_sub_topic)
     bclient.subscribe(TOPICS[0])
 
@@ -197,6 +208,8 @@ async def test_shared_subscriptions(init_clients):
     assert len(callback.messages) + len(callback2.messages) == count
     assert len(callback.messages) > 0
     assert len(callback2.messages) > 0
+
+    await pubclient.disconnect()
 
 
 @pytest.mark.asyncio
@@ -450,3 +463,22 @@ async def test_basic_ssl(init_clients):
     aclient.publish(TOPICS[0], b"qos 2", 2)
     await asyncio.sleep(1)
     assert len(callback2.messages) == 3
+
+
+@pytest.mark.asyncio
+async def test_reconnection_with_failure(init_clients):
+    aclient, callback, bclient, callback2 = init_clients
+    aclient.set_config({'reconnect_retries': -1, 'reconnect_delay': 0})
+    await aclient.connect(host=host, port=port)
+    await bclient.connect(host=host, port=port)
+
+    bclient.subscribe(TOPICS[0])
+
+    with mock.patch.object(aclient, '_disconnect') as disconnect_mock:
+        disconnect_mock.side_effect = ConnectionAbortedError("error")
+        await aclient.reconnect()
+
+    # Check aclient is still working after reconnection
+    aclient.publish(TOPICS[0], b"test")
+    await asyncio.sleep(5)
+    assert len(callback2.messages) == 1

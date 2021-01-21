@@ -180,6 +180,7 @@ class MqttPackageHandler(EventCallback):
         self._error = None
         self._connection = None
         self._extract_c_properties = False
+        self._server_topics_aliases = {}
 
         self._id_generator = IdGenerator(max=kwargs.get('receive_maximum', 65535))
 
@@ -187,6 +188,9 @@ class MqttPackageHandler(EventCallback):
             self._optimistic_acknowledgement = kwargs.get('optimistic_acknowledgement', True)
         else:
             self._optimistic_acknowledgement = True
+
+    def _clear_topics_aliases(self):
+        self._server_topics_aliases = {}
 
     def _send_command_with_mid(self, cmd, mid, dup, reason_code=0):
         raise NotImplementedError
@@ -228,6 +232,9 @@ class MqttPackageHandler(EventCallback):
         logger.warning('[UNKNOWN CMD] %s %s', hex(cmd), packet)
 
     def _handle_disconnect_packet(self, cmd, packet):
+        # reset server topics on disconnect
+        self._clear_topics_aliases()
+
         future = asyncio.ensure_future(self.reconnect(delay=True))
         future.add_done_callback(self._handle_exception_in_future)
         self.on_disconnect(self, packet)
@@ -257,6 +264,12 @@ class MqttPackageHandler(EventCallback):
             properties_dict = dict(properties_dict)
             return properties_dict, left_packet
 
+    def _update_keepalive_if_needed(self):
+        if not self._connack_properties.get('server_keep_alive'):
+            return
+        self._keepalive = self._connack_properties['server_keep_alive']
+        self._connection.keepalive = self._keepalive
+
     def _handle_connack_packet(self, cmd, packet):
         self._connected.set()
 
@@ -284,6 +297,7 @@ class MqttPackageHandler(EventCallback):
                 self._error = MQTTConnectError(10)
                 asyncio.ensure_future(self.disconnect())
             self._connack_properties = properties
+            self._update_keepalive_if_needed()
 
         # TODO: Implement checking for the flags and results
         # see 3.2.2.3 Connect Return code of the http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.pdf
@@ -304,19 +318,8 @@ class MqttPackageHandler(EventCallback):
         pack_format = '!' + str(slen) + 's' + str(len(packet) - slen) + 's'
         (topic, packet) = struct.unpack(pack_format, packet)
 
-        if not topic:
-            logger.warning('[MQTT ERR PROTO] topic name is empty')
-            return
-
-        try:
-            print_topic = topic.decode('utf-8')
-        except UnicodeDecodeError as exc:
-            logger.warning('[INVALID CHARACTER IN TOPIC] %s', topic, exc_info=exc)
-            print_topic = topic
-
+        # we will change the packet ref, let's save origin
         payload = packet
-
-        logger.debug('[RECV %s with QoS: %s] %s', print_topic, qos, payload)
 
         if qos > 0:
             pack_format = "!H" + str(len(packet) - 2) + 's'
@@ -331,6 +334,26 @@ class MqttPackageHandler(EventCallback):
         if packet is None:
             logger.critical('[INVALID MESSAGE] skipping: {}'.format(raw_packet))
             return
+
+        if 'topic_alias' in properties:
+            # TODO: need to add validation (topic alias must be greater than 0 and less than topic_alias_maximum)
+            topic_alias = properties['topic_alias'][0]
+            if topic:
+                self._server_topics_aliases[topic_alias] = topic
+            else:
+                topic = self._server_topics_aliases.get(topic_alias, None)
+
+        if not topic:
+            logger.warning('[MQTT ERR PROTO] topic name is empty (or server has send invalid topic alias)')
+            return
+
+        try:
+            print_topic = topic.decode('utf-8')
+        except UnicodeDecodeError as exc:
+            logger.warning('[INVALID CHARACTER IN TOPIC] %s', topic, exc_info=exc)
+            print_topic = topic
+
+        logger.debug('[RECV %s with QoS: %s] %s', print_topic, qos, payload)
 
         if qos == 0:
             run_coroutine_or_function(self.on_message, self, print_topic, packet, qos, properties)

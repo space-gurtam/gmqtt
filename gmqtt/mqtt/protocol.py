@@ -1,6 +1,8 @@
 import asyncio
 import logging
-import struct
+import time
+
+import sys
 
 from . import package
 from .constants import MQTTv50, MQTTCommands
@@ -8,7 +10,26 @@ from .constants import MQTTv50, MQTTCommands
 logger = logging.getLogger(__name__)
 
 
-class BaseMQTTProtocol(asyncio.StreamReaderProtocol):
+class _StreamReaderProtocolCompatibilityMixin:
+    def __init__(self, *args, **kwargs):
+        if sys.version_info < (3, 7):
+            self._closed = asyncio.get_event_loop().create_future()
+        super(_StreamReaderProtocolCompatibilityMixin, self).__init__(*args, **kwargs)
+
+    def connection_lost(self, exc):
+        super(_StreamReaderProtocolCompatibilityMixin, self).connection_lost(exc)
+
+        if sys.version_info[:2] >= (3, 7):
+            return
+
+        if not self._closed.done():
+            if exc is None:
+                self._closed.set_result(None)
+            else:
+                self._closed.set_exception(exc)
+
+
+class BaseMQTTProtocol(_StreamReaderProtocolCompatibilityMixin, asyncio.StreamReaderProtocol):
     def __init__(self, buffer_size=2**16, loop=None):
         if not loop:
             loop = asyncio.get_event_loop()
@@ -16,7 +37,7 @@ class BaseMQTTProtocol(asyncio.StreamReaderProtocol):
         self._connection = None
         self._transport = None
 
-        self._connected = asyncio.Event(loop=loop)
+        self._connected = asyncio.Event()
 
         reader = asyncio.StreamReader(limit=buffer_size, loop=loop)
         # this is bad hack for python 3.8
@@ -26,6 +47,10 @@ class BaseMQTTProtocol(asyncio.StreamReaderProtocol):
 
     def set_connection(self, conn):
         self._connection = conn
+
+    @property
+    def closed(self):
+        return self._closed
 
     def _parse_packet(self):
         raise NotImplementedError
@@ -42,6 +67,7 @@ class BaseMQTTProtocol(asyncio.StreamReaderProtocol):
         super(BaseMQTTProtocol, self).data_received(data)
 
     def write_data(self, data: bytes):
+        self._connection._last_data_out = time.monotonic()
         if self._transport and not self._transport.is_closing():
             self._transport.write(data)
         else:
@@ -197,6 +223,7 @@ class MQTTProtocol(BaseMQTTProtocol):
     def connection_lost(self, exc):
         super(MQTTProtocol, self).connection_lost(exc)
         self._connection.put_package((MQTTCommands.DISCONNECT, b''))
+
         if self._read_loop_future is not None:
             self._read_loop_future.cancel()
             self._read_loop_future = None
