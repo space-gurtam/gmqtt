@@ -2,6 +2,7 @@ import asyncio
 import logging
 import struct
 import time
+import re
 
 from asyncio import iscoroutinefunction
 from collections import defaultdict
@@ -276,7 +277,13 @@ class MqttPackageHandler(EventCallback):
         (flags, result) = struct.unpack("!BB", packet[:2])
 
         if result != 0:
-            logger.warning('[CONNACK] %s', hex(result))
+            username_log = ''
+            if self._username:
+                # find 64 byte hash
+                hash = re.search(r'[A-Za-z0-9]{64}', self._username.decode('utf-8'))
+                if hash:
+                    username_log = hash.group(0)[:3]
+            logger.warning('[CONNACK] result: %s,  user: %s...', hex(result), username_log)
             self.failed_connections += 1
             if result == 1 and self.protocol_version == MQTTv50:
                 logger.info('[CONNACK] Downgrading to MQTT 3.1 protocol version')
