@@ -16,7 +16,7 @@ from .constants import MQTTCommands, PubAckReasonCode, PubRecReasonCode, DEFAULT
 from .constants import MQTTv311, MQTTv50
 
 try:
-    import gmqttlib
+    from gmqtt import gmqttlib
 except:
     _has_gmqttlib = False
 else:
