@@ -153,7 +153,7 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
 
         self._topic_alias_maximum = kwargs.get('topic_alias_maximum', 0)
 
-        self._resend_task = asyncio.ensure_future(self._resend_qos_messages())
+        self._resend_task = None
 
         self._logger = logger or logging.getLogger(__name__)
 
@@ -229,6 +229,8 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
         await self._connection.auth(self._client_id, self._username, self._password, will_message=self._will_message,
                                     **self._connect_properties)
         await self._connected.wait()
+
+        self._resend_task = asyncio.ensure_future(self._resend_qos_messages())
 
         await self._persistent_storage.wait_empty()
 
