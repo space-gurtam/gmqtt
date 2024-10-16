@@ -151,7 +151,7 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
         self._persistent_storage = kwargs.pop('persistent_storage', HeapPersistentStorage(self._retry_deliver_timeout))
         self._extract_c_properties = kwargs.pop('extract_c_properties', False)
 
-        self._topic_alias_maximum = kwargs.get('topic_alias_maximum', 0)
+        self._topic_alias_maximum = kwargs.pop('topic_alias_maximum', 0)
 
         self._debug_mode = kwargs.get('debug_mode', False)
 
