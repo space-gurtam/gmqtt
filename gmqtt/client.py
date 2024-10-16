@@ -153,6 +153,8 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
 
         self._topic_alias_maximum = kwargs.get('topic_alias_maximum', 0)
 
+        self._debug_mode = kwargs.get('debug_mode', False)
+
         self._resend_task = None
 
         self._logger = logger or logging.getLogger(__name__)
@@ -297,6 +299,8 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
             message = Message(message_or_topic, payload, qos=qos, retain=retain, **kwargs)
 
         mid, package = self._connection.publish(message)
+        if self._debug_mode:
+            self._logger.info(f'mid: {mid}, topic: {message.topic}, payload_size: {message.payload_size}')
 
         if qos > 0:
             self._persistent_storage.push_message_nowait(mid, package)
