@@ -180,7 +180,6 @@ class MqttPackageHandler(EventCallback):
         self._handler_cache = {}
         self._error = None
         self._connection = None
-        self._debug_mode = False
         self._extract_c_properties = False
         self._server_topics_aliases = {}
 
@@ -364,9 +363,6 @@ class MqttPackageHandler(EventCallback):
             print_topic = topic
 
         self._logger.debug('[RECV %s with QoS: %s] %s', print_topic, qos, payload)
-
-        if self._debug_mode:
-            self._logger.info(f'mid: {mid}, topic: {print_topic}, packet_size: {len(packet)}')
 
         if qos == 0:
             run_coroutine_or_function(self.on_message, self, print_topic, packet, qos, properties)
