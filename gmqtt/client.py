@@ -149,11 +149,10 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
         # TODO: this constant may be moved to config
         self._retry_deliver_timeout = kwargs.pop('retry_deliver_timeout', 5)
         self._persistent_storage = kwargs.pop('persistent_storage', HeapPersistentStorage(self._retry_deliver_timeout))
+        self._debug_mode = kwargs.pop('debug_mode', False)
         self._extract_c_properties = kwargs.pop('extract_c_properties', False)
 
         self._topic_alias_maximum = kwargs.pop('topic_alias_maximum', 0)
-
-        self._debug_mode = kwargs.get('debug_mode', False)
 
         self._resend_task = None
 
