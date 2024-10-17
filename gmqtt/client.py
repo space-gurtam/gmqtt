@@ -297,7 +297,7 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
         else:
             message = Message(message_or_topic, payload, qos=qos, retain=retain, **kwargs)
 
-        mid, package = self._connection.publish(message)
+        mid, package = self._connection.publish(message, logger=self._logger, debug_mode=self._debug_mode)
         if self._debug_mode:
             self._logger.info(f'mid: {mid}, topic: {message.topic}, payload_size: {message.payload_size}')
 

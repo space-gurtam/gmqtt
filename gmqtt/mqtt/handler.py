@@ -180,6 +180,7 @@ class MqttPackageHandler(EventCallback):
         self._handler_cache = {}
         self._error = None
         self._connection = None
+        self._debug_mode = False
         self._extract_c_properties = False
         self._server_topics_aliases = {}
 
@@ -453,6 +454,10 @@ class MqttPackageHandler(EventCallback):
         (mid, ) = struct.unpack("!H", packet[:2])
 
         # TODO: For MQTT 5.0 parse reason code and properties
+
+        # logging for debug mode
+        if self._debug_mode:
+            self._logger.info(f'mid: {mid}, packet_size: {len(packet)}')
 
         self._logger.debug('[RECEIVED PUBACK FOR] %s', mid)
 

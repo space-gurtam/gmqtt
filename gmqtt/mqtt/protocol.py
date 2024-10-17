@@ -134,8 +134,13 @@ class MQTTProtocol(BaseMQTTProtocol):
     def send_ping_request(self):
         self.send_simple_command_packet(MQTTCommands.PINGREQ)
 
-    def send_publish(self, message):
+    def send_publish(self, message, **kwargs):
         mid, pkg = package.PublishPacket.build_package(message, self)
+
+        # logging for debug mode
+        if kwargs.get('logger', None) and kwargs.get('debug_mode', False):
+            kwargs['logger'].info(f'mid: {mid}, topic: {message.topic}, payload_size: {message.payload_size}')
+
         self.write_data(pkg)
 
         return mid, pkg
