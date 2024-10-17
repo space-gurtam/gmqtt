@@ -457,7 +457,8 @@ class MqttPackageHandler(EventCallback):
 
         # logging for debug mode
         if self._debug_mode:
-            self._logger.info(f'mid: {mid}, packet_size: {len(packet)}')
+            self._logger.info(f'{self.__class__.__name__}:_handle_puback_packet: received PUBACK packet from '
+                              f'server with mid: {mid}, packet_size: {len(packet)}')
 
         self._logger.debug('[RECEIVED PUBACK FOR] %s', mid)
 

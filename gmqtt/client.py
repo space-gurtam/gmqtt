@@ -192,7 +192,13 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
                 (mid, package) = msg
 
                 try:
+                    if self._debug_mode:
+                        self._logger.info(f'{self.__class__.__name__}:_resend_qos_messages: sending packet with '
+                                          f'mid: {mid}, packet_size: {len(package)}')
                     self._connection.send_package(package)
+                    if self._debug_mode:
+                        self._logger.info(f'{self.__class__.__name__}:_resend_qos_messages: sended packet with '
+                                          f'mid: {mid}, packet_size: {len(package)}')
                 except Exception as exc:
                     self._logger.error('[ERROR WHILE RESENDING] mid: %s', mid, exc_info=exc)
 
@@ -299,7 +305,8 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
 
         mid, package = self._connection.publish(message, logger=self._logger, debug_mode=self._debug_mode)
         if self._debug_mode:
-            self._logger.info(f'mid: {mid}, topic: {message.topic}, payload_size: {message.payload_size}')
+            self._logger.info(f'{self.__class__.__name__}:publish: sended PUBLISH packet with '
+                              f'mid: {mid}, topic: {message.topic}, packet_size: {message.payload_size}')
 
         if qos > 0:
             self._persistent_storage.push_message_nowait(mid, package)

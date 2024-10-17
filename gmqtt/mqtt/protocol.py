@@ -139,7 +139,8 @@ class MQTTProtocol(BaseMQTTProtocol):
 
         # logging for debug mode
         if kwargs.get('logger', None) and kwargs.get('debug_mode', False):
-            kwargs['logger'].info(f'mid: {mid}, topic: {message.topic}, payload_size: {message.payload_size}')
+            kwargs['logger'].info(f'{self.__class__.__name__}:send_publish: sending PUBLISH packet with '
+                                  f'mid: {mid}, topic: {message.topic}, packet_size: {message.payload_size}')
 
         self.write_data(pkg)
 
