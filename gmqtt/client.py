@@ -149,10 +149,9 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
         # TODO: this constant may be moved to config
         self._retry_deliver_timeout = kwargs.pop('retry_deliver_timeout', 5)
         self._persistent_storage = kwargs.pop('persistent_storage', HeapPersistentStorage(self._retry_deliver_timeout))
-        self._debug_mode = kwargs.pop('debug_mode', False)
         self._extract_c_properties = kwargs.pop('extract_c_properties', False)
 
-        self._topic_alias_maximum = kwargs.pop('topic_alias_maximum', 0)
+        self._topic_alias_maximum = kwargs.get('topic_alias_maximum', 0)
 
         self._resend_task = None
 
@@ -192,13 +191,7 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
                 (mid, package) = msg
 
                 try:
-                    if self._debug_mode:
-                        self._logger.info(f'{self.__class__.__name__}:_resend_qos_messages: sending packet with '
-                                          f'mid: {mid}, packet_size: {len(package)}')
                     self._connection.send_package(package)
-                    if self._debug_mode:
-                        self._logger.info(f'{self.__class__.__name__}:_resend_qos_messages: sended packet with '
-                                          f'mid: {mid}, packet_size: {len(package)}')
                 except Exception as exc:
                     self._logger.error('[ERROR WHILE RESENDING] mid: %s', mid, exc_info=exc)
 
@@ -303,10 +296,7 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
         else:
             message = Message(message_or_topic, payload, qos=qos, retain=retain, **kwargs)
 
-        mid, package = self._connection.publish(message, logger=self._logger, debug_mode=self._debug_mode)
-        if self._debug_mode:
-            self._logger.info(f'{self.__class__.__name__}:publish: sended PUBLISH packet with '
-                              f'mid: {mid}, topic: {message.topic}, packet_size: {message.payload_size}')
+        mid, package = self._connection.publish(message)
 
         if qos > 0:
             self._persistent_storage.push_message_nowait(mid, package)

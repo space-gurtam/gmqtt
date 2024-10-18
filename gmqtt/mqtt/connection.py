@@ -61,8 +61,8 @@ class MQTTConnection(object):
         await self._protocol.send_auth_package(client_id, username, password, self._clean_session,
                                                self._keepalive, will_message=will_message, **kwargs)
 
-    def publish(self, message, **kwargs):
-        return self._protocol.send_publish(message, **kwargs)
+    def publish(self, message):
+        return self._protocol.send_publish(message)
 
     def send_disconnect(self, reason_code=0, **properties):
         self._protocol.send_disconnect(reason_code=reason_code, **properties)
