@@ -151,9 +151,6 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
         self._persistent_storage = kwargs.pop('persistent_storage', HeapPersistentStorage())
         self._extract_c_properties = kwargs.pop('extract_c_properties', False)
 
-        self._publish_stats = [0, 0]  # [retain, not_retain]
-        asyncio.create_task(self._stat_logger())
-
         self._topic_alias_maximum = kwargs.get('topic_alias_maximum', 0)
 
         self._logger = logger or logging.getLogger(__name__)
@@ -295,21 +292,10 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
         else:
             message = Message(message_or_topic, payload, qos=qos, retain=retain, **kwargs)
 
-        if message.retain:
-            self._publish_stats[0] += 1
-        else:
-            self._publish_stats[1] += 1
-
         mid, package = self._connection.publish(message)
 
         if qos > 0:
             self._persistent_storage.push_message_nowait(mid, package)
-
-    async def _stat_logger(self):
-        while True:
-            await asyncio.sleep(60)
-            self._logger.info(f'[STATS] retain: {self._publish_stats[0]}, not_retain: {self._publish_stats[1]}')
-            self._publish_stats = [0, 0]
 
     def _send_simple_command(self, cmd):
         self._connection.send_simple_command(cmd)
