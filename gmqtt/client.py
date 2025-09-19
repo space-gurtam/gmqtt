@@ -299,6 +299,11 @@ class Client(MqttPackageHandler, SubscriptionsHandler):
         else:
             message = Message(message_or_topic, payload, qos=qos, retain=retain, **kwargs)
 
+        if message.retain:
+            self._publish_stats[0] += 1
+        else:
+            self._publish_stats[1] += 1
+
         mid, package = self._connection.publish(message)
 
         if qos > 0:
